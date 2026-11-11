@@ -139,8 +139,8 @@
       }
     ];
 
-    // Default registered users list
-    const DEFAULT_USERS = ['ABS', 'JPW'];
+    // Default authorized predefined users (including JPWadmin)
+    const DEFAULT_AUTHORIZED_USERS = ['TSB', 'JPW', 'WRCB', 'JPWadmin'];
 
     /**
      * Main React Application Component:
@@ -148,20 +148,24 @@
      * routine pre-filling, performance graphing, and local storage data persistence.
      */
     function GymNotebookApp() {
-      // 1. User Profiles State
-      const [userList, setUserList] = useState(() => {
-        const saved = localStorage.getItem('gym_notebook_users');
-        return saved ? JSON.parse(saved) : DEFAULT_USERS;
+      // 1. Authorized Predefined Users State
+      const [authorizedUsers, setAuthorizedUsers] = useState(() => {
+        const saved = localStorage.getItem('gym_notebook_authorized_users');
+        return saved ? JSON.parse(saved) : DEFAULT_AUTHORIZED_USERS;
       });
 
       // Currently active user profile
       const [currentUser, setCurrentUser] = useState(() => {
-        return localStorage.getItem('gym_notebook_current_user') || 'ABS';
+        return localStorage.getItem('gym_notebook_current_user') || '';
       });
 
       // User Authentication Lock State
-      const [isLoggedIn, setIsLoggedIn] = useState(false);
+      const [isLoggedIn, setIsLoggedIn] = useState(() => {
+        return !!localStorage.getItem('gym_notebook_current_user');
+      });
       const [loginInput, setLoginInput] = useState('');
+      const [loginError, setLoginError] = useState('');
+      const [newUserInput, setNewUserInput] = useState('');
 
       // Per-User Storage Keys: Isolates storage so different users cannot read each other's data
       const exercisesKey = `gym_notebook_${currentUser}_exercises`;
@@ -181,21 +185,22 @@
 
       // Load user-specific profile data from browser LocalStorage whenever active user changes
       useEffect(() => {
+        if (!currentUser) return;
         const savedExercises = localStorage.getItem(exercisesKey);
         const savedHistory = localStorage.getItem(historyKey);
         const savedUnit = localStorage.getItem(unitKey);
 
         setExercises(savedExercises ? JSON.parse(savedExercises) : INITIAL_EXERCISES);
-        setWorkoutHistory(savedHistory ? JSON.parse(savedHistory) : (currentUser === 'ABS' ? SAMPLE_HISTORY : []));
+        setWorkoutHistory(savedHistory ? JSON.parse(savedHistory) : (currentUser.toUpperCase() === 'ABS' ? SAMPLE_HISTORY : []));
         setWeightUnit(savedUnit || 'kg');
 
         localStorage.setItem('gym_notebook_current_user', currentUser);
       }, [currentUser, exercisesKey, historyKey, unitKey]);
 
-      // Save user list and data to LocalStorage
+      // Save authorized users list to LocalStorage
       useEffect(() => {
-        localStorage.setItem('gym_notebook_users', JSON.stringify(userList));
-      }, [userList]);
+        localStorage.setItem('gym_notebook_authorized_users', JSON.stringify(authorizedUsers));
+      }, [authorizedUsers]);
 
       useEffect(() => {
         if (currentUser && exercises.length > 0) {
@@ -248,24 +253,47 @@
       const [timerSeconds, setTimerSeconds] = useState(0);
       const [isTimerActive, setIsTimerActive] = useState(false);
 
-      // Handle User Login Gate Form Submission
+      // Handle User Login Gate Form Submission (Strict Predefined Check)
       const handleLoginSubmit = (e) => {
         e.preventDefault();
         const trimmed = loginInput.trim();
         if (!trimmed) return;
         
-        if (!userList.map(u => u.toLowerCase()).includes(trimmed.toLowerCase())) {
-          setUserList(prev => [...prev, trimmed]);
+        const matchedUser = authorizedUsers.find(
+          u => u.toLowerCase() === trimmed.toLowerCase()
+        );
+
+        if (matchedUser) {
+          setCurrentUser(matchedUser);
+          setIsLoggedIn(true);
+          setLoginInput('');
+          setLoginError('');
+        } else {
+          setLoginError('ACCESS DENIED: USERNAME NOT AUTHORIZED BY ADMIN.');
         }
-        
-        const match = userList.find(u => u.toLowerCase() === trimmed.toLowerCase()) || trimmed;
-        setCurrentUser(match);
-        setIsLoggedIn(true);
-        setLoginInput('');
       };
 
       const handleLogout = () => {
         setIsLoggedIn(false);
+        setCurrentUser('');
+        localStorage.removeItem('gym_notebook_current_user');
+      };
+
+      // Admin Feature: JPWadmin can authorize and add new usernames
+      const handleAddAuthorizedUser = (e) => {
+        e.preventDefault();
+        const newUser = newUserInput.trim();
+        if (!newUser) return;
+
+        if (authorizedUsers.some(u => u.toLowerCase() === newUser.toLowerCase())) {
+          alert('User already exists in the authorized list.');
+          return;
+        }
+
+        const updated = [...authorizedUsers, newUser];
+        setAuthorizedUsers(updated);
+        setNewUserInput('');
+        alert(`User [${newUser}] successfully authorized!`);
       };
 
       // Admin Feature: Allows 'JPWadmin' to update exercise names in real time
@@ -926,9 +954,51 @@
                 </div>
               )}
 
-              {/* TAB 5: DATABASE & ADMIN RENAME FEATURE */}
+              {/* TAB 5: DATABASE & ADMIN CONTROLS */}
               {activeTab === 'exercises' && (
                 <div className="max-w-4xl mx-auto space-y-6">
+                  
+                  {/* Admin User Management Panel (Visible only to JPWadmin) */}
+                  {isAdmin && (
+                    <div className="bg-slate-900 border-2 border-cyan-500/50 rounded-2xl p-5 space-y-4 shadow-xl">
+                      <div className="border-b border-cyan-500/30 pb-2">
+                        <h3 className="text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
+                          👑 ADMIN CONTROL: AUTHORIZE NEW USERS
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-1">
+                          Only predefined authorized users can log into the system. Add new usernames below.
+                        </p>
+                      </div>
+
+                      <form onSubmit={handleAddAuthorizedUser} className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="New username..."
+                          value={newUserInput}
+                          onChange={(e) => setNewUserInput(e.target.value)}
+                          className="flex-1 bg-slate-950 border border-cyan-500/40 rounded-xl px-3 py-2 text-sm font-mono text-cyan-200 outline-none uppercase"
+                        />
+                        <button
+                          type="submit"
+                          className="px-5 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono font-bold text-xs rounded-xl uppercase"
+                        >
+                          AUTHORIZE USER
+                        </button>
+                      </form>
+
+                      <div>
+                        <span className="text-[11px] font-mono text-slate-400 uppercase block mb-2">Authorized Users List:</span>
+                        <div className="flex flex-wrap gap-2">
+                          {authorizedUsers.map(u => (
+                            <span key={u} className="bg-slate-950 border border-cyan-500/30 text-cyan-300 text-xs font-mono px-3 py-1 rounded-lg font-bold">
+                              {u} {u === 'JPWadmin' ? '(ADMIN)' : ''}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="border-b border-cyan-500/20 pb-3 flex justify-between items-center">
                     <div>
                       <h2 className="text-2xl font-bold font-mono text-white">EXERCISE DATABASE</h2>
@@ -971,7 +1041,7 @@
             </div>
           </div>
 
-          {/* USER LOGIN AUTHENTICATION GATE */}
+          {/* USER LOGIN AUTHENTICATION GATE (STRICT AUTHORIZED CHECK) */}
           {!isLoggedIn && (
             <div className="fixed inset-0 bg-[#060814] z-50 flex items-center justify-center p-4">
               <div className="w-full max-w-md bg-slate-950 border border-cyan-500/40 rounded-3xl p-6 sm:p-8 shadow-[0_0_60px_rgba(6,182,212,0.25)] space-y-6">
@@ -983,7 +1053,7 @@
                     MEMORY CARD ACCESS LOCK
                   </h2>
                   <p className="text-xs font-mono text-cyan-400/70">
-                    Enter your username to unlock your personal profile & logs.
+                    Enter your authorized username to unlock your profile.
                   </p>
                 </div>
 
@@ -996,11 +1066,20 @@
                       type="text"
                       placeholder="Type username..."
                       value={loginInput}
-                      onChange={(e) => setLoginInput(e.target.value)}
-                      className="w-full bg-slate-900 border border-cyan-500/40 rounded-xl px-4 py-3 text-sm font-mono text-cyan-200 outline-none focus:border-cyan-400 shadow-inner"
+                      onChange={(e) => {
+                        setLoginInput(e.target.value);
+                        setLoginError('');
+                      }}
+                      className="w-full bg-slate-900 border border-cyan-500/40 rounded-xl px-4 py-3 text-sm font-mono text-cyan-200 outline-none focus:border-cyan-400 shadow-inner uppercase"
                       autoFocus
                     />
                   </div>
+
+                  {loginError && (
+                    <div className="bg-red-950/80 border border-red-500/50 p-2.5 rounded-xl text-red-300 text-xs font-mono font-bold text-center">
+                      {loginError}
+                    </div>
+                  )}
 
                   <button
                     type="submit"
